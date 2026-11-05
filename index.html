@@ -39,9 +39,11 @@ svg{overflow:visible}
 .prog .t{height:14px;background:var(--card);border:2px solid var(--ink);border-radius:20px;overflow:hidden}
 .prog .f{height:100%;width:0;background:repeating-linear-gradient(-45deg,var(--pink2) 0 8px,var(--pink) 8px 16px);border-radius:20px;transition:width .5s cubic-bezier(.3,1.4,.5,1)}
 .prog .l{font-family:var(--hand);font-size:17px;color:var(--soft);line-height:1;margin-top:2px;text-align:center}
-.btn{font:inherit;font-weight:800;font-size:15px;border:2px solid var(--ink);background:var(--c,var(--butter));color:var(--ink);border-radius:16px;padding:6px 10px;cursor:pointer;box-shadow:2px 3px 0 var(--ink);white-space:nowrap}
+.btn{font:inherit;font-weight:800;font-size:15px;line-height:1.2;border:2px solid var(--ink);background:var(--c,var(--butter));color:var(--ink);border-radius:16px;padding:6px 10px;cursor:pointer;box-shadow:2px 3px 0 var(--ink);white-space:nowrap}
 .btn:active{transform:translate(2px,3px);box-shadow:0 0 0 var(--ink)}
 .btn[disabled]{opacity:.5;cursor:default}
+.btn{min-width:40px}
+.btn.off{opacity:.45;text-decoration:line-through}
 
 /* hero */
 .hero{max-width:640px;margin:0 auto;padding:26px 20px 6px;text-align:center;position:relative}
@@ -91,6 +93,7 @@ svg{overflow:visible}
 #sentinel{height:1px}
 .foot{text-align:center;font-family:var(--hand);font-size:22px;color:var(--soft);padding:20px 0 40px}
 
+@media (max-width:400px){.bar .in{gap:6px;padding:8px 10px}.btn{padding:6px 7px}.counter{font-size:19px}.counter svg{width:30px}}
 @keyframes sway{to{transform:rotate(5deg)}}
 @keyframes drift{to{transform:translate(calc(-50% + 18px),-50%)}}
 @keyframes bump{40%{transform:scale(1.3) rotate(-4deg)}}
@@ -116,7 +119,9 @@ svg{overflow:visible}
 <div class="bar"><div class="in">
   <div class="counter" id="counter"><span id="cicon"></span><span id="cnum">0</span></div>
   <div class="prog"><div class="t"><div class="f" id="pf"></div></div><div class="l" id="pl">до приза: 100</div></div>
-  <button class="btn" id="hintBtn" style="--c:var(--butter)">🔍 Где?</button>
+  <button class="btn" id="musBtn" style="--c:var(--mint)" aria-label="музыка">🎵</button>
+  <button class="btn" id="sndBtn" style="--c:var(--lilac)" aria-label="звуки">🔊</button>
+  <button class="btn" id="hintBtn" style="--c:var(--butter)" aria-label="подсказка">🔍</button>
   <button class="btn" id="prizeBtn" style="--c:var(--pink)">🎁</button>
 </div></div>
 
@@ -226,6 +231,105 @@ const THEMES = [
 ];
 const SIZE = {flower:58,tulip:46,bush:130,fern:96,tree:120,mushroom:56,cloud:110,heart:40,balloon:56,cake:84,gift:70,rings:70,star:40,lily:86,reeds:62,wave:100,duck:64,sun:90};
 
+/* ---------- 8-битный звук ---------- */
+let muted = false;
+try{ muted = localStorage.getItem('dino_muted')==='1'; }catch(e){}
+let AC = null;
+function ac(){
+  if(!AC){ const C = window.AudioContext||window.webkitAudioContext; if(!C) return null; AC = new C(); }
+  if(AC.state==='suspended') AC.resume();
+  return AC;
+}
+function tone(f, t0, dur, {type='square', vol=.07, to=null}={}){
+  const c = ac(); if(!c || muted) return;
+  const o = c.createOscillator(), g = c.createGain(), t = c.currentTime + t0;
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if(to) o.frequency.exponentialRampToValueAtTime(to, t+dur);
+  g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t+dur*.7); g.gain.exponentialRampToValueAtTime(.0001, t+dur);
+  o.connect(g).connect(c.destination); o.start(t); o.stop(t+dur+.02);
+}
+function noise(t0, dur, vol=.06){
+  const c = ac(); if(!c || muted) return;
+  const n = Math.floor(c.sampleRate*dur), buf = c.createBuffer(1,n,c.sampleRate), d = buf.getChannelData(0);
+  let v = 0; for(let i=0;i<n;i++){ if(i%40===0) v = Math.random()*2-1; d[i] = v*(1-i/n); }
+  const s = c.createBufferSource(), g = c.createGain(); s.buffer = buf; g.gain.value = vol;
+  s.connect(g).connect(c.destination); s.start(c.currentTime+t0);
+}
+const N = {C5:523,D5:587,E5:659,F5:698,G5:784,A5:880,B5:988,C6:1047,E6:1319,G6:1568,G4:392,C4:262,E4:330};
+const COINS = [[N.B5,N.E6],[N.A5,N.E6],[N.G5,N.C6],[N.C6,N.G6]];
+const sfx = {
+  coin(){ const [a,b] = pick(COINS); tone(a,0,.07); tone(b,.07,.22); },
+  rawr(){ tone(330,0,.35,{type:'sawtooth',vol:.06,to:90}); noise(0,.3,.05); tone(N.E6,.36,.12,{vol:.05}); },
+  flap(){ tone(600,0,.06,{to:1200}); tone(700,.08,.06,{to:1400}); tone(N.E6,.16,.15); },
+  jingle(){ [N.C5,N.E5,N.G5,N.C6].forEach((f,i)=>tone(f,i*.08,.1,{vol:.06})); },
+  fanfare(){
+    const m = [[N.G4,.12],[N.C5,.12],[N.E5,.12],[N.G5,.24],[N.E5,.12],[N.G5,.5]];
+    let t = 0; m.forEach(([f,d])=>{ tone(f,t,d*.95,{vol:.07}); tone(f/2,t,d*.95,{type:'triangle',vol:.08}); t += d; });
+    [N.C6,N.E6,N.G6].forEach((f,i)=>tone(f,t+.05+i*.06,.18,{vol:.05}));
+  },
+  hint(){ tone(N.E5,0,.08); tone(N.G5,.1,.08); tone(N.E6,.2,.16,{type:'triangle',vol:.09}); },
+  nope(){ tone(N.E4,0,.12); tone(N.C4,.13,.2); },
+  blip(){ tone(N.A5,0,.05,{vol:.05}); },
+  start(){ [N.C5,N.G5,N.C6].forEach((f,i)=>tone(f,i*.07,.09,{vol:.05})); }
+};
+const sndBtn = document.getElementById('sndBtn');
+function sndRender(){ sndBtn.textContent = muted ? '🔇' : '🔊'; }
+sndRender();
+sndBtn.onclick = ()=>{ muted = !muted; try{ localStorage.setItem('dino_muted', muted?'1':'0'); }catch(e){} sndRender(); if(!muted) sfx.start(); };
+
+/* ---------- фоновая 8-битная мелодия ---------- */
+let musicOn = true;
+try{ musicOn = localStorage.getItem('dino_music')!=='0'; }catch(e){}
+const MIDI = n=>{ const m = {C:0,D:2,E:4,F:5,G:7,A:9,B:11}[n[0]] + (n[1]==='#'?1:0); return 12*(parseInt(n.slice(-1))+1)+m; };
+const FQ = n=>440*Math.pow(2,(MIDI(n)-69)/12);
+const _ = null;
+const MEL = [
+ "E5","G5","C6","G5","E5","G5","A5","G5",  "E5","C5","E5","A5","G5","E5","C5",_,
+ "G5","A5","C6","A5","F5","A5","G5","F5",  "D5","G5","B5","G5","D5","F5","E5","D5",
+ "C6",_,"B5","C6","G5",_,"E5","G5",        "A5",_,"G5","A5","E5",_,"C5","E5",
+ "F5","G5","A5","C6","D6","C6","A5","F5",  "G5",_,"D5",_,"G5","B5","C6",_
+];
+const ROOTS = ["C","A","F","G","C","A","F","G"];
+const BASSOCT = {C:3,A:2,F:2,G:2};
+const STEP = 60/138/2;
+let musStep = 0, musNext = 0, musTimer = null;
+function playAt(f,t,dur,type,vol){
+  const c = AC, o = c.createOscillator(), g = c.createGain();
+  o.type = type; o.frequency.setValueAtTime(f,t);
+  g.gain.setValueAtTime(vol,t); g.gain.setValueAtTime(vol,t+dur*.6); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  o.connect(g).connect(c.destination); o.start(t); o.stop(t+dur+.02);
+}
+function musTick(){
+  while(musNext < AC.currentTime + .15){
+    const i = musStep % MEL.length, bar = Math.floor(i/8), r = ROOTS[bar];
+    if(MEL[i]) playAt(FQ(MEL[i]), musNext, STEP*.9, 'square', .018);
+    const lo = r + BASSOCT[r], hi = r + (BASSOCT[r]+1);
+    playAt(FQ(i%2 ? hi : lo), musNext, STEP*.85, 'triangle', .07);
+    musNext += STEP; musStep++;
+  }
+}
+function musicStart(){
+  if(!musicOn || musTimer) return;
+  const c = ac(); if(!c) return;
+  musNext = c.currentTime + .1;
+  musTimer = setInterval(musTick, 30);
+}
+function musicStop(){ clearInterval(musTimer); musTimer = null; }
+const musBtn = document.getElementById('musBtn');
+function musRender(){ musBtn.classList.toggle('off', !musicOn); }
+musRender();
+musBtn.onclick = e=>{
+  e.stopPropagation();
+  musicOn = !musicOn; try{ localStorage.setItem('dino_music', musicOn?'1':'0'); }catch(_){}
+  musRender(); musicOn ? musicStart() : musicStop();
+};
+// браузеры разрешают звук только после первого касания
+['pointerdown','keydown','touchstart'].forEach(ev=>addEventListener(ev, ()=>musicStart(), {once:true, passive:true}));
+document.addEventListener('visibilitychange', ()=>{
+  if(!AC) return;
+  if(document.hidden) AC.suspend(); else AC.resume();
+});
+
 /* ---------- генерация мира ---------- */
 const world = document.getElementById('world');
 let chunkN = 0;
@@ -254,7 +358,7 @@ function makeChunk(){
     const s = dinoSize()*DSIZE[key];
     const b = document.createElement('button');
     b.className = 'dino';
-    b.setAttribute('aria-label','динозаврик');
+    b.setAttribute('aria-label','динозаврик'); b.dataset.k = key;
     b.style.cssText = `left:${dx}%;top:${dy}px;width:${s}px;--r:${R(-14,14)}deg;--fx:${Math.random()<.5?-1:1};z-index:${5}`;
     b.innerHTML = DINOS[key](pr[0],pr[1]);
     b.addEventListener('click', e=>catchDino(b,e));
@@ -327,8 +431,11 @@ function catchDino(b,e){
   setTimeout(()=>{f.remove(); b.remove();},1100);
   if(navigator.vibrate) try{navigator.vibrate(30);}catch(_){}
   const into = found % GOAL;
-  if(into===0) setTimeout(showPrize,600);
-  else if(CHEERS[into]) toast(CHEERS[into]);
+  if(into===0){ sfx.coin(); setTimeout(showPrize,600); }
+  else if(CHEERS[into]){ sfx.coin(); setTimeout(sfx.jingle,250); toast(CHEERS[into]); }
+  else if(b.dataset.k==='trex' && Math.random()<.6) sfx.rawr();
+  else if(b.dataset.k==='ptero') sfx.flap();
+  else sfx.coin();
 }
 
 let tt;
@@ -342,9 +449,11 @@ function showPrize(){
   document.getElementById('prizeText').textContent = prizeFor(n);
   document.getElementById('prizeDino').innerHTML = DINOS.trex("#C3EBD3","#FFC2D9");
   document.getElementById('prizeModal').classList.add('on');
+  sfx.fanfare();
 }
 document.getElementById('prizeOk').onclick = ()=>document.getElementById('prizeModal').classList.remove('on');
 document.getElementById('prizeBtn').onclick = ()=>{
+  sfx.blip();
   const n = Math.floor(found/GOAL), ul = document.getElementById('plist');
   ul.innerHTML = n ? Array.from({length:n},(_,i)=>`<li><b>№${i+1}</b>${prizeFor(i+1)}</li>`).reverse().join("")
                    : `<li class="empty" style="background:none">Пока призов нет — найди ${GOAL} динозавров! Осталось ${GOAL-found%GOAL}.</li>`;
@@ -357,11 +466,12 @@ document.querySelectorAll('.modal').forEach(m=>m.addEventListener('click',e=>{ i
 const hintBtn = document.getElementById('hintBtn');
 hintBtn.onclick = ()=>{
   const vis = [...document.querySelectorAll('.dino:not(.found)')].filter(d=>{const r=d.getBoundingClientRect();return r.top>60&&r.bottom<innerHeight;});
-  if(!vis.length){ toast("Тут никого… листай дальше ↓"); return; }
+  if(!vis.length){ sfx.nope(); toast("Тут никого… листай дальше ↓"); return; }
+  sfx.hint();
   const d = pick(vis); d.classList.add('hint'); setTimeout(()=>d.classList.remove('hint'),2300);
   hintBtn.disabled = true; let s = 15;
-  const iv = setInterval(()=>{ s--; hintBtn.textContent = s>0 ? `⏳ ${s}` : '🔍 Где?'; if(s<=0){clearInterval(iv); hintBtn.disabled=false;} },1000);
-  hintBtn.textContent = `⏳ ${s}`;
+  const iv = setInterval(()=>{ s--; hintBtn.textContent = s>0 ? `${s}` : '🔍'; if(s<=0){clearInterval(iv); hintBtn.disabled=false;} },1000);
+  hintBtn.textContent = `${s}`;
 };
 })();
 </script>
