@@ -783,28 +783,42 @@ function openTask(i, fresh){
       const pos = e=>{ const r=cv.getBoundingClientRect(); return [(e.clientX-r.left)/r.width*600,(e.clientY-r.top)/r.height*600]; };
       cv.onpointerdown = e=>{ drawing=true; touched=true; last=pos(e); cv.setPointerCapture(e.pointerId); cx.fillStyle=col; cx.beginPath(); cx.arc(last[0],last[1],size/2,0,7); cx.fill(); };
       cv.onpointermove = e=>{ if(!drawing) return; const p=pos(e); cx.strokeStyle=col; cx.lineWidth=size; cx.beginPath(); cx.moveTo(last[0],last[1]); cx.lineTo(p[0],p[1]); cx.stroke(); last=p; };
-      cv.onpointerup = cv.onpointercancel = ()=>{ drawing=false; };
+      let blob = null, bt = null;
+      const makeBlob = ()=>{ clearTimeout(bt); bt = setTimeout(()=>{ const c2=document.createElement('canvas'); c2.width=c2.height=600; const x2=c2.getContext('2d'); x2.drawImage(cv,0,0); x2.fillStyle=INK; x2.font='bold 28px "Caveat", cursive'; x2.textAlign='right'; x2.fillText('от бубочки ♡',585,585); c2.toBlob(b=>{ blob=b; },'image/png'); }, 120); };
+      cv.onpointerup = cv.onpointercancel = ()=>{ if(drawing) makeBlob(); drawing=false; };
+      $('dClr').onclick = ()=>{ cx.fillStyle='#fff'; cx.fillRect(0,0,600,600); touched=false; blob=null; };
       $('tLater').onclick = closeModal;
-      $('tSend').onclick = async ()=>{
+      $('tSend').onclick = ()=>{
         if(!touched){ toast('Сначала нарисуй ♡'); return; }
-        // подписываем рисунок
-        if(!cv.signed){ cx.fillStyle = INK; cx.font = 'bold 26px "Caveat", cursive'; cx.textAlign='right'; cx.fillText('от бубочки ♡', 585, 585); cv.signed = true; }
-        const blobP = new Promise(res=>cv.toBlob(res,'image/png'));
+        if(!blob){ toast('Секундочку…'); makeBlob(); return; }
         const caption = `🎨 ${T.t}\n— от бубочки 🦕`;
-        let copied = false;
-        try{ if(navigator.clipboard && window.ClipboardItem){ await navigator.clipboard.write([new ClipboardItem({'image/png': blobP})]); copied = true; } }catch(e){ copied = false; }
-        if(copied){
-          const mob = /iPhone|iPad|Android/i.test(navigator.userAgent);
-          sentStep(i, `Рисунок скопирован! Открой чат с Настей, ${mob ? 'нажми и подержи поле ввода → «Вставить»' : 'кликни в поле сообщения и нажми Ctrl+V (на Mac — ⌘+V)'}, потом «Отправить».`, caption, false);
-        } else {
-          const blob = await blobP; const file = new File([blob],'risunok-dlya-nasti.png',{type:'image/png'});
-          try{ if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); sentStep(i,'Если ещё не отправил — выбери Телеграм и чат с Настей ♡', caption, true); return; } }catch(e){ if(e && e.name==='AbortError') return; }
-          const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'risunok-dlya-nasti.png'; document.body.appendChild(a); a.click(); a.remove();
-          sentStep(i, 'Рисунок скачался. Открой чат с Настей, прикрепи файл risunok-dlya-nasti.png (скрепка 📎) и отправь!', caption, false);
+        const file = new File([blob],'risunok-dlya-nasti.png',{type:'image/png'});
+        const mob = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints>1 && /Macintosh/.test(navigator.userAgent));
+        if(mob && navigator.canShare && navigator.canShare({files:[file]})){
+          navigator.share({files:[file], text:caption}).then(()=>{
+            drawStep(i, blob, true);
+          }).catch(e=>{ if(!e || e.name!=='AbortError') drawStep(i, blob, false); });
+          return;
         }
+        drawStep(i, blob, false);
       };
     });
   }
+}
+function drawStep(i, blob, shared){
+  if(shared){
+    modal(`<div class="task-ic">✈️</div><h2>Отправил?</h2><p>Если в меню ты выбрал Телеграм и чат с Настей — всё готово! Если нет, попробуй ещё раз.</p><p class="sub">награда: 💗💗</p><div class="row"><button class="btn big" id="tDone" style="--c:var(--mint)">Отправил ✓</button></div>`, ()=>{ $('tDone').onclick=()=>completeTask(i); });
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  const mac = /Mac/.test(navigator.platform||navigator.userAgent);
+  modal(`<h2>Отправляем рисунок 🎨</h2><img src="${url}" alt="рисунок" style="width:150px;border:2px solid ${INK};border-radius:14px;margin:4px auto 10px;display:block"><ol style="text-align:left;margin:0 0 6px;padding-left:22px;line-height:1.5"><li>Нажми <b>«Скопировать»</b></li><li>Нажми <b>«Открыть чат с Настей»</b></li><li>Кликни в поле сообщения и нажми <b>${mac?'⌘+V':'Ctrl+V'}</b> — появится картинка</li><li>Отправь ♡</li></ol><div class="row"><button class="btn" id="tCopy" style="--c:var(--gold)">📋 Скопировать</button><a class="btn" href="https://t.me/${TG}" target="_blank" rel="noopener" style="--c:var(--pink);text-decoration:none;color:${INK}">✈️ Открыть чат с Настей</a></div><div class="row" style="margin-top:8px"><a class="btn" href="${url}" download="risunok-dlya-nasti.png" style="--c:#fff;text-decoration:none;color:${INK};font-size:13px">⬇️ Не вставляется? Скачать файл</a></div><p class="sub" style="font-size:17px;margin-top:8px">скачанный файл прикрепи в чате скрепкой 📎</p><div class="row"><button class="btn big" id="tDone" style="--c:var(--mint)">Отправил ✓</button></div>`, ()=>{
+    $('tCopy').onclick = async ()=>{
+      try{ await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]); $('tCopy').textContent='✓ Скопировано!'; sfx.blip(); }
+      catch(e){ toast('Не получилось скопировать — скачай файл ниже'); }
+    };
+    $('tDone').onclick = ()=>completeTask(i);
+  });
 }
 function completeTask(i){
   if(!S.tasks[i]){ S.tasks[i]=true; S.hearts+=2; save(); }
